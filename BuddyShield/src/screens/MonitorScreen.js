@@ -1,12 +1,22 @@
 // src/screens/MonitorScreen.js
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, SafeAreaView, Switch,
+  StyleSheet, SafeAreaView, Switch, Platform,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS, SPACING, RADIUS } from '../constants/theme';
 import useStore from '../store/useStore';
+import BuddyshieldNative from '../../modules/buddyshield-native/src/BuddyshieldNativeModule';
+
+const TOP_DATA_USERS_COUNT = 5;
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
 
 // Mock activity log — replaced by real AppOpsManager data in production
 const MOCK_ACTIVITY = [
@@ -23,6 +33,35 @@ export default function MonitorScreen() {
   const privacyMode = settings.privacyMode;
 
   const flaggedCount = MOCK_ACTIVITY.filter(e => e.risk).length;
+
+  const [dataUsage, setDataUsage] = useState(null); // null = not loaded, [] = loaded but empty
+  const [needsUsageAccess, setNeedsUsageAccess] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      let cancelled = false;
+
+      (async () => {
+        try {
+          if (!BuddyshieldNative.hasUsageAccess()) {
+            if (!cancelled) setNeedsUsageAccess(true);
+            return;
+          }
+          setNeedsUsageAccess(false);
+          const usage = await BuddyshieldNative.getNetworkUsage(7);
+          const top = [...usage]
+            .sort((a, b) => (b.rxBytes + b.txBytes) - (a.rxBytes + a.txBytes))
+            .slice(0, TOP_DATA_USERS_COUNT);
+          if (!cancelled) setDataUsage(top);
+        } catch {
+          // Module unavailable (e.g. Expo Go) — leave the section hidden.
+        }
+      })();
+
+      return () => { cancelled = true; };
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -73,6 +112,44 @@ export default function MonitorScreen() {
             <Text style={styles.statLabel}>Total Today</Text>
           </View>
         </View>
+
+        {/* Data Usage (real, Android only) */}
+        {Platform.OS === 'android' && needsUsageAccess && (
+          <TouchableOpacity
+            style={styles.usageBanner}
+            onPress={() => BuddyshieldNative.openUsageAccessSettings()}
+          >
+            <Text style={styles.usageBannerTitle}>See which apps use the most data</Text>
+            <Text style={styles.usageBannerDesc}>
+              Grant Usage Access to enable the data usage analyzer.
+            </Text>
+            <Text style={styles.usageBannerCta}>Open Settings ›</Text>
+          </TouchableOpacity>
+        )}
+
+        {dataUsage?.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Data Usage (Last 7 Days)</Text>
+            {dataUsage.map(entry => {
+              const totalBytes = entry.rxBytes + entry.txBytes;
+              const isHigh = totalBytes > 500 * 1024 * 1024;
+              return (
+                <View
+                  key={entry.packageName}
+                  style={[styles.dataCard, isHigh && styles.dataCardHigh]}
+                >
+                  <View style={styles.dataInfo}>
+                    <Text style={styles.dataAppName} numberOfLines={1}>{entry.name}</Text>
+                    <Text style={styles.dataPackage} numberOfLines={1}>{entry.packageName}</Text>
+                  </View>
+                  <Text style={[styles.dataAmount, isHigh && styles.dataAmountHigh]}>
+                    {formatBytes(totalBytes)}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* Activity Feed */}
         <Text style={styles.sectionTitle}>Activity Log</Text>
@@ -130,7 +207,28 @@ const styles = StyleSheet.create({
   },
   statNum: { fontSize: 26, fontWeight: FONTS.black },
   statLabel: { fontSize: 11, color: COLORS.muted, marginTop: 2, textAlign: 'center' },
+  section: { gap: SPACING.sm },
   sectionTitle: { fontSize: 14, fontWeight: FONTS.bold, color: COLORS.softNavy },
+  usageBanner: {
+    backgroundColor: COLORS.softNavy, borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  usageBannerTitle: { color: 'white', fontSize: 14, fontWeight: FONTS.bold },
+  usageBannerDesc: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 4, lineHeight: 17 },
+  usageBannerCta: { color: COLORS.shieldBlue, fontSize: 12, fontWeight: FONTS.bold, marginTop: 8 },
+  dataCard: {
+    backgroundColor: COLORS.cardWhite, borderRadius: RADIUS.lg,
+    padding: SPACING.md, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'space-between',
+    borderLeftWidth: 4, borderLeftColor: 'transparent',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+  },
+  dataCardHigh: { borderLeftColor: COLORS.warnAmber },
+  dataInfo: { flex: 1, marginRight: SPACING.sm },
+  dataAppName: { fontSize: 13, fontWeight: FONTS.bold, color: COLORS.softNavy },
+  dataPackage: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  dataAmount: { fontSize: 14, fontWeight: FONTS.bold, color: COLORS.shieldBlue },
+  dataAmountHigh: { color: COLORS.warnAmber },
   eventCard: {
     backgroundColor: COLORS.cardWhite, borderRadius: RADIUS.lg,
     padding: SPACING.md, flexDirection: 'row',

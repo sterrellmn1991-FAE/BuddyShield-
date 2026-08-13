@@ -6,6 +6,8 @@ import BuddyshieldNative from '../../modules/buddyshield-native/src/BuddyshieldN
 import { PERMISSIONS_RISK_MATRIX } from '../constants/theme';
 import ThreatDatabaseService from './ThreatDatabaseService';
 
+const HIGH_DATA_USAGE_BYTES = 500 * 1024 * 1024; // 500 MB over the trailing 7 days
+
 // ─── Known legitimate system package prefixes ─────────────────────────────
 const TRUSTED_SYSTEM_PREFIXES = [
   'com.google.android',
@@ -202,12 +204,41 @@ class ScanService {
   }
 
   // ─── Step 6: Network Activity Check ─────────────────────────────────────
+  // Uses NetworkStatsManager data from the native module (per-app bytes
+  // sent/received — no VpnService involved) when Usage access is granted.
+  // This flags apps moving an unusual amount of data; it can't identify
+  // *which* servers/domains they talked to — that would require a local
+  // VPN capturing all device traffic, a much higher-risk feature that
+  // isn't built yet (see BuddyShield/README.md).
   async _checkNetworkActivity(apps) {
-    try {
-      // Production: pull from local VPN service logs
-      // const { BuddyShieldVPN } = NativeModules;
-      // const networkLogs = await BuddyShieldVPN.getConnectionLogs();
+    if (Platform.OS === 'android') {
+      try {
+        if (BuddyshieldNative.hasUsageAccess()) {
+          const usage = await BuddyshieldNative.getNetworkUsage(7);
+          const usageByPackage = Object.fromEntries(usage.map(u => [u.packageName, u]));
+          return apps.map(app => {
+            const stat = usageByPackage[app.packageName];
+            if (!stat) return { ...app, networkFlag: false };
+            const totalBytes = stat.rxBytes + stat.txBytes;
+            const totalMB = totalBytes / (1024 * 1024);
+            if (totalBytes > HIGH_DATA_USAGE_BYTES) {
+              return {
+                ...app,
+                networkFlag: true,
+                networkReason: `Used ${totalMB.toFixed(0)} MB of data in the last 7 days — unusually high.`,
+                dataUsageBytes: totalBytes,
+              };
+            }
+            return { ...app, networkFlag: false, dataUsageBytes: totalBytes };
+          });
+        }
+      } catch (error) {
+        console.warn('ScanService: network usage unavailable, skipping network check', error.message);
+      }
+    }
 
+    // Mock-data fallback
+    try {
       return apps.map(app => {
         if (app.suspiciousConnections?.length > 0) {
           return {

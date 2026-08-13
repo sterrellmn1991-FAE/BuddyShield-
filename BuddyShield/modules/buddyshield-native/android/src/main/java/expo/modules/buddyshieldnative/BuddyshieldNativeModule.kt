@@ -1,11 +1,14 @@
 package expo.modules.buddyshieldnative
 
 import android.app.AppOpsManager
+import android.app.usage.NetworkStats
+import android.app.usage.NetworkStatsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -62,6 +65,23 @@ class BuddyshieldNativeModule : Module() {
         promise.resolve(queryUsageStats(days))
       } catch (e: Exception) {
         promise.reject("ERR_USAGE_STATS", e.message ?: "Failed to read usage stats", e)
+      }
+    }
+
+    // ── Network usage ────────────────────────────────────────────────────
+    // Per-app data usage (bytes sent/received over WiFi + mobile) via
+    // NetworkStatsManager. Gated behind the same "Usage access" permission
+    // as getUsageStats — no VpnService involved, so there's no risk of
+    // breaking the device's network connectivity. This gives real "is this
+    // app moving an unusual amount of data" signal, but not which
+    // domains/servers it talked to (that would require intercepting and
+    // forwarding all device traffic through a local VPN, which is a much
+    // higher-risk feature that needs on-device testing before it ships).
+    AsyncFunction("getNetworkUsage") { days: Int, promise: Promise ->
+      try {
+        promise.resolve(queryNetworkUsage(days))
+      } catch (e: Exception) {
+        promise.reject("ERR_NETWORK_USAGE", e.message ?: "Failed to read network usage", e)
       }
     }
 
@@ -168,6 +188,61 @@ class BuddyshieldNativeModule : Module() {
           "packageName" to it.packageName,
           "totalTimeInForegroundMs" to it.totalTimeInForeground,
           "lastTimeUsed" to it.lastTimeUsed
+        )
+      }
+  }
+
+  // ── Network usage ─────────────────────────────────────────────────────
+  private fun queryNetworkUsage(days: Int): List<Map<String, Any?>> {
+    if (!hasUsageAccess()) return emptyList()
+
+    val nsm = context.getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager
+    val end = System.currentTimeMillis()
+    val start = end - days.coerceAtLeast(1).toLong() * 24L * 60L * 60L * 1000L
+
+    // uid -> [rxBytes, txBytes]
+    val totalsByUid = mutableMapOf<Int, LongArray>()
+
+    for (networkType in intArrayOf(ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_MOBILE)) {
+      try {
+        val bucket = NetworkStats.Bucket()
+        // subscriberId=null works for TYPE_WIFI always, and for TYPE_MOBILE
+        // when the caller holds Usage Access (which we've already checked
+        // above) — no READ_PHONE_STATE needed. If a device/OS combination
+        // doesn't allow it, this network type is simply skipped below
+        // rather than failing the whole call.
+        val stats = nsm.querySummary(networkType, null, start, end)
+        while (stats.hasNextBucket()) {
+          stats.getNextBucket(bucket)
+          val totals = totalsByUid.getOrPut(bucket.uid) { longArrayOf(0L, 0L) }
+          totals[0] += bucket.rxBytes
+          totals[1] += bucket.txBytes
+        }
+        stats.close()
+      } catch (e: Exception) {
+        // Expected on some devices/OS versions for TYPE_MOBILE — skip it.
+      }
+    }
+
+    val pm = context.packageManager
+    val selfUid = context.applicationInfo.uid
+
+    return totalsByUid.entries
+      .filter { it.key != selfUid && (it.value[0] > 0 || it.value[1] > 0) }
+      .mapNotNull { (uid, totals) ->
+        val packageName = pm.getPackagesForUid(uid)?.firstOrNull() ?: return@mapNotNull null
+        val label = try {
+          val appInfo = pm.getApplicationInfo(packageName, 0)
+          pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+          packageName
+        }
+
+        mapOf(
+          "packageName" to packageName,
+          "name" to label,
+          "rxBytes" to totals[0],
+          "txBytes" to totals[1]
         )
       }
   }

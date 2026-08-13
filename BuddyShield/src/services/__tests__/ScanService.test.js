@@ -20,6 +20,7 @@ jest.mock('../../../modules/buddyshield-native/src/BuddyshieldNativeModule', () 
   hasUsageAccess: jest.fn(() => false),
   openUsageAccessSettings: jest.fn(),
   getUsageStats: jest.fn(() => Promise.resolve([])),
+  getNetworkUsage: jest.fn(() => Promise.resolve([])),
   getPermissionAccessLog: jest.fn(() => ({ supported: false, reason: '', events: [] })),
 }));
 
@@ -95,6 +96,24 @@ describe('_buildFinalReport', () => {
     const apps = [{ packageName: 'com.safe', riskFromPermissions: 'safe' }];
     const [result] = await ScanService._buildFinalReport(apps);
     expect(result.reason).toBe('No issues found.');
+  });
+});
+
+describe('_checkNetworkActivity', () => {
+  // Platform.OS is 'ios' under jest-expo's default preset, so this always
+  // exercises the mock-data fallback path (the Android/native-module path
+  // is covered by the native module's own contract, not unit-testable here).
+  it('flags an app with suspicious connections', async () => {
+    const apps = [{ packageName: 'com.test', suspiciousConnections: ['1.2.3.4'] }];
+    const [result] = await ScanService._checkNetworkActivity(apps);
+    expect(result.networkFlag).toBe(true);
+    expect(result.networkReason).toContain('1.2.3.4');
+  });
+
+  it('does not flag an app with no suspicious connections', async () => {
+    const apps = [{ packageName: 'com.test', suspiciousConnections: [] }];
+    const [result] = await ScanService._checkNetworkActivity(apps);
+    expect(result.networkFlag).toBe(false);
   });
 });
 

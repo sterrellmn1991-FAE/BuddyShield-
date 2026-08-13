@@ -16,6 +16,13 @@ export type UsageStatEntry = {
   lastTimeUsed: number;
 };
 
+export type NetworkUsageEntry = {
+  packageName: string;
+  name: string;
+  rxBytes: number;
+  txBytes: number;
+};
+
 export type PermissionAccessLog = {
   supported: boolean;
   reason: string;

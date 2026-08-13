@@ -67,7 +67,8 @@ Play Store app to do:
 | Real app icons | ✅ Real (Android) | Extracted via `PackageManager.getApplicationIcon()`, sent to JS as base64 PNGs. |
 | Usage stats (foreground time) | ✅ Real (Android), opt-in | Requires "Usage access", a special permission the user must grant manually in Settings — the app has a banner + deep link for this (`BuddyshieldNative.openUsageAccessSettings()`). |
 | Per-app mic/camera/location access history ("Mic Monitor", "who's listening") | ❌ Not implementable for 3rd-party apps | Android restricts cross-app `AppOps` history to system/signature-level apps (this is what powers the OS's own Privacy Dashboard). No public API exposes this to Play Store apps for *other* apps' sensor access. The native module reports this honestly (`getPermissionAccessLog()` → `supported: false`) instead of faking it. |
-| Network traffic analyzer (per-app destinations) | 🔲 Not built yet | This *is* technically possible via a local `VpnService` that routes traffic through the device and attributes it per-app — a legitimate, common technique (e.g., NetGuard, Instagram-blocker apps use it). Not implemented in this pass; `ScanService._checkNetworkActivity()` is still mock-only. |
+| Network data usage per app (bytes sent/received) | ✅ Real (Android), opt-in | Via `NetworkStatsManager`, gated behind the same "Usage access" permission as usage stats — no VPN involved. Flags apps moving >500MB/week (`ScanService._checkNetworkActivity()`); shown as a "Data Usage" list on the Monitor tab. |
+| Network traffic analyzer — *which domains/servers* each app talks to | 🔲 Not built | This is a materially different, higher-risk feature: it requires a local `VpnService` that captures and forwards *all* device traffic through hand-written packet/NAT-forwarding code (how NetGuard-style apps work). A bug in that code can break the device's internet access until the user manually disables the VPN in Settings, and it can't be safely verified without testing on a real device — not something to ship untested from this environment (no Android SDK/emulator here). Per-app data *volume* above covers the "is this app moving a lot of data" signal without that risk. |
 | Threat database (known stalkerware package names) | ✅ Real, local seed list | Ships with a small seed list (`ThreatDatabaseService.js`). `syncFromServer()` will pull updates once you stand up the backend below. |
 | iOS | ❌ Not supported | Apple's sandboxing means no app — this one included — can enumerate other installed apps or their usage data. The native module returns empty/safe stubs on iOS rather than crashing. |
 
@@ -132,6 +133,7 @@ await BuddyshieldNative.getInstalledApps();      // -> InstalledApp[]
 BuddyshieldNative.hasUsageAccess();              // -> boolean
 BuddyshieldNative.openUsageAccessSettings();      // opens the Settings screen
 await BuddyshieldNative.getUsageStats(30);        // -> UsageStatEntry[] (last N days)
+await BuddyshieldNative.getNetworkUsage(7);       // -> NetworkUsageEntry[] (rxBytes/txBytes per app)
 BuddyshieldNative.getPermissionAccessLog();       // -> { supported: false, ... }
 ```
 

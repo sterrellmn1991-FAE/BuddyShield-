@@ -25,6 +25,10 @@ public class BuddyshieldNativeModule: Module {
       []
     }
 
+    AsyncFunction("getNetworkUsage") { (_ days: Int) -> [[String: Any]] in
+      []
+    }
+
     Function("getPermissionAccessLog") { () -> [String: Any] in
       [
         "supported": false,
