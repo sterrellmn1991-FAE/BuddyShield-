@@ -32,5 +32,8 @@
     "eslint-config-expo": "~10.0.0",
     "jest": "^29.7.0",
     "jest-expo": "~55.0.0"
+  },
+  "jest": {
+    "preset": "jest-expo"
   }
 }
