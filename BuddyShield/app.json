@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "BuddyShield",
+    "slug": "buddyshield",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "buddyshield",
+    "userInterfaceStyle": "light",
+    "primaryColor": "#1A73E8",
+    "backgroundColor": "#0D1B2A",
+    "ios": {
+      "bundleIdentifier": "com.buddyshield.app",
+      "supportsTablet": false,
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.buddyshield.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0D1B2A",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.QUERY_ALL_PACKAGES",
+        "android.permission.PACKAGE_USAGE_STATS"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0D1B2A",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 140
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_YOUR_EAS_PROJECT_ID"
+      }
+    }
+  }
+}
