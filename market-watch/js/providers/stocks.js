@@ -22,11 +22,26 @@ const YAHOO = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const ALPHA = 'https://www.alphavantage.co/query';
 const FINNHUB = 'https://finnhub.io/api/v1';
 
-/** True when the page is served by our own server, which carries the proxy. */
+/**
+ * Whether to try the bundled server's /api/stock proxy.
+ *
+ * Being served over http(s) is necessary but not sufficient — a static host
+ * such as GitHub Pages looks identical from here, and there the proxy path
+ * simply 404s. So the first confirmed 404 latches this off for the session
+ * rather than wasting a request per symbol per poll forever.
+ */
+let proxyRuledOut = false;
+
 export function hasLocalProxy() {
+  if (proxyRuledOut) return false;
   return typeof location !== 'undefined'
     && (location.protocol === 'http:' || location.protocol === 'https:')
     && !!location.host;
+}
+
+/** Exposed for tests; also resets after a settings change that may fix it. */
+export function resetProxyDetection() {
+  proxyRuledOut = false;
 }
 
 function shape(symbol, name, series, source) {
@@ -69,6 +84,11 @@ function parseYahooChart(json, symbol) {
 
 async function viaProxy(symbol, signal) {
   const res = await fetch(`/api/stock/${encodeURIComponent(symbol)}?range=2y&interval=1d`, { signal });
+  if (res.status === 404) {
+    // Not a transient failure: this host has no proxy. Stop asking.
+    proxyRuledOut = true;
+    throw new Error('no proxy on this host (static hosting) — skipping it from now on');
+  }
   if (!res.ok) throw new Error(`Local proxy responded ${res.status}`);
   const { series, name } = parseYahooChart(await res.json(), symbol);
   return shape(symbol, name, series, 'yahoo (local proxy)');
@@ -182,7 +202,9 @@ export async function fetchStock(symbol, { alphaVantageKey, finnhubKey, signal }
     `Could not load "${symbol}" from any stock source.\n` +
     attempts.map((a) => `  • ${a}`).join('\n') +
     '\n\nStock data from a browser is blocked by CORS on most public endpoints. ' +
-    'Fixes, easiest first: run the bundled server with "npm start" and open the ' +
-    'page from it, add a free Alpha Vantage key in Settings, or switch on Demo mode.',
+    'Fixes, easiest first: switch on Demo mode to keep using the app; add a free ' +
+    'Alpha Vantage key in Settings for live stocks here; or run this app locally ' +
+    'with "npm start", which proxies stock data and needs no key. Live crypto ' +
+    'works everywhere and needs nothing.',
   );
 }

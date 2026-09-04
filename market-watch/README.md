@@ -6,6 +6,14 @@ bullish, bearish, correcting, recovering, or going nowhere.
 
 No build step, no framework, no dependencies. Open it and it runs.
 
+**Live:** https://sterrellmn1991-fae.github.io/BuddyShield-/
+*(published from `main` by GitHub Actions — see [Deployment](#deployment))*
+
+On the hosted copy, **demo mode and live crypto both work with no setup**. Live
+*stocks* need either a free Alpha Vantage key in Settings or a local run
+(`npm start`), because a static host has no proxy to get past Yahoo's missing
+CORS headers.
+
 ---
 
 ## Quick start
@@ -342,6 +350,40 @@ regime baked in, so the classifier has real structure to find. It exists so that
 
 ---
 
+## Deployment
+
+The web app is static — HTML, CSS and ES modules, no build step — so it hosts
+anywhere that serves files. `.github/workflows/deploy-pages.yml` publishes it to
+GitHub Pages on every push to `main` that touches `market-watch/`.
+
+**One-time setup** (repo Settings → Pages → Build and deployment → Source →
+**GitHub Actions**). Nothing else to configure.
+
+The workflow runs the test suite first and deploys only if it passes, so a red
+suite never reaches the live site. It publishes `index.html`, `css/` and the
+browser modules; `server.js`, `watcher.js`, `js/watcher/` and the tests are
+excluded, since a static host cannot run them and shipping them would imply a
+backend that isn't there.
+
+### What works on a static host
+
+| | Hosted on Pages | Run locally with `npm start` |
+|---|---|---|
+| Demo mode | ✅ | ✅ |
+| Live crypto | ✅ no key needed | ✅ |
+| Live stocks | needs a free Alpha Vantage key | ✅ no key needed |
+| Background watcher | ✗ — it's a Node process | ✅ |
+
+The app detects this itself: it probes the proxy path once, and a 404 latches
+it off for the session rather than burning a doomed request per symbol on every
+poll. A transient 5xx does not latch, since that might just be a restarting
+server. Both behaviours are tested.
+
+You can also deploy the same folder to Netlify, Vercel, Cloudflare Pages or any
+static host — publish directory `market-watch`, no build command.
+
+---
+
 ## Tests
 
 ```bash
@@ -349,7 +391,7 @@ cd market-watch
 npm test
 ```
 
-79 tests covering the parts where a quiet bug costs money:
+84 tests covering the parts where a quiet bug costs money:
 
 - **Indicators** — verified against hand-computed values (Wilder RSI-14 on the
   canonical worked example, EMA seeding, ATR, sample standard deviation),
@@ -365,6 +407,8 @@ npm test
   symbol case), quiet-hour windows that wrap past midnight, state surviving a
   restart, corrupt state degrading instead of crashing, and the Discord/Slack/
   JSON webhook payload shapes.
+- **Static hosting** — the proxy probe latching off after a 404 but not after a
+  transient error, and the all-routes-failed message naming a fix that works.
 
 ---
 
