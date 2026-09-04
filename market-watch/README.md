@@ -36,6 +36,16 @@ what makes live stock data work without any API key.
 
 Turn off **Demo mode** in Settings when you want real prices.
 
+**Option C — the background watcher (alerts with the browser closed)**
+
+```bash
+cd market-watch
+cp watcher.config.example.json watcher.config.json
+npm run watch
+```
+
+See [Background watcher](#background-watcher--alerts-while-the-browser-is-closed).
+
 ---
 
 ## What it does
@@ -118,6 +128,175 @@ The same price series can therefore read *Bearish* as a stock and merely
 
 ---
 
+## Background watcher — alerts while the browser is closed
+
+The browser can only alert you while the tab is open. A service worker doesn't
+change that: it still needs the browser process running. So the watcher is a
+separate Node process that polls and alerts with no browser involved.
+
+```bash
+cd market-watch
+cp watcher.config.example.json watcher.config.json   # then edit it
+npm run watch
+```
+
+Or build your watchlist and alerts in the web UI and hit
+**Settings → Export for watcher** — the exported file is exactly the config
+format, ready to run.
+
+```
+Market Watch — background watcher
+  watching 4 asset(s), 5 active rule(s)
+  data:    live
+  poll:    every 300s
+  alerts:  desktop, webhook:discord, log:watcher-events.log
+  quiet:   23:00–07:00 (critical alerts still get through)
+
+  • BTC rises above $150,000.00
+  • BTC falls below $90,000.00
+  • ETH moves 8% in a session
+  ...
+
+[09:14:02] ! BTC rose above $150,000.00 — now $151,208.44.
+         note: take some profit
+  09:14:02  BTC ▲2.1% bullish  ·  ETH ▲0.4% bullish  ·  SPY ▼0.2% sideways
+```
+
+### Options
+
+```
+node watcher.js                       # uses ./watcher.config.json
+node watcher.js --config path.json
+node watcher.js --once                # one pass then exit — for cron
+node watcher.js --dry-run             # evaluate and print, deliver nothing
+node watcher.js --test-alert          # prove your channels work, right now
+```
+
+Run `--test-alert` first. It pushes a test through every configured channel and
+tells you which ones actually worked, so you find out now rather than the
+morning you needed the alert.
+
+### How alerts reach you
+
+| Channel | Reaches you when |
+|---|---|
+| **Webhook** (Discord/Slack/any JSON endpoint) | Anywhere, including your phone. This is the one that matters. |
+| Desktop notification | You're at the machine |
+| Speech | You're within earshot |
+| Command | Hands the event as JSON on stdin to any program you name |
+| Log file + console | Always |
+
+To get alerts on your phone: make a Discord server for yourself, create a
+channel webhook (Channel → Edit → Integrations → Webhooks), and put the URL in
+the config. Discord's mobile app then pushes it to you.
+
+```json
+"webhooks": [
+  { "url": "https://discord.com/api/webhooks/...", "format": "discord" }
+]
+```
+
+Webhook URLs must be `https`, with one exception: plain `http` is allowed for
+`localhost`, so you can relay to something on your own machine.
+
+### Quiet hours
+
+```json
+"quietHours": { "start": "23:00", "end": "07:00" }
+```
+
+Mutes the attention-grabbing channels overnight — but never the durable ones.
+The alert is still logged and still posted to your webhook; it just doesn't
+make a noise at 3am. **Critical alerts ignore quiet hours entirely.** Windows
+that wrap past midnight work correctly, and there's a test for it.
+
+### It remembers across restarts
+
+Rule state is persisted to `.watcher-state.json` after every pass, written
+atomically. Restarting the watcher does **not** re-fire every alert whose
+condition happens to be true at that moment — which is what would otherwise
+happen, and would be enough to make you turn the thing off. Your fired-alert
+history survives too.
+
+### Keeping it running
+
+The watcher runs while the *machine* is on. On a laptop that closes at night,
+alerts stop when the lid does. For genuinely always-on alerting, run it on
+something that stays up — a Raspberry Pi, an old laptop, or a small VPS.
+
+**systemd (Linux):** `/etc/systemd/system/market-watch.service`
+
+```ini
+[Unit]
+Description=Market Watch background watcher
+After=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/market-watch
+ExecStart=/usr/bin/node watcher.js
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now market-watch
+journalctl -u market-watch -f
+```
+
+**launchd (macOS):** a `~/Library/LaunchAgents/*.plist` with `RunAtLoad` and
+`KeepAlive` set, pointing `ProgramArguments` at `node watcher.js`.
+
+**cron:** use `--once` and let cron own the schedule:
+
+```
+*/5 * * * * cd /path/to/market-watch && /usr/bin/node watcher.js --once >> cron.log 2>&1
+```
+
+Persisted state is what makes the cron approach work — each run picks up where
+the last one left off instead of re-firing everything.
+
+### Stocks are easier here
+
+Node has no CORS. The watcher fetches Yahoo directly, so **live stock data works
+with no API key and no proxy** — the thing the browser app needs `server.js`
+for. Crypto is unchanged: CoinGecko, no key.
+
+### Config reference
+
+| Key | Meaning |
+|---|---|
+| `settings.demoMode` | Simulated prices. Set `false` for a real watcher. |
+| `settings.refreshSeconds` | Poll interval; floored at 30s, defaults to 300s. Free APIs rate-limit — be kind. |
+| `settings.*Key` | Optional API keys. **Not** included in an export from the web app. |
+| `watchlist[]` | `{ symbol, assetType }` where assetType is `stock` or `crypto`. |
+| `rules[]` | Same rule shape the web app uses. |
+| `watcher.desktopNotifications` | OS notification on the local machine. |
+| `watcher.speak` | Read alerts aloud locally. |
+| `watcher.webhooks[]` | `{ url, format }` — format is `discord`, `slack`, or `json`. |
+| `watcher.command` | A program (string or argv array) handed the event as JSON on stdin. |
+| `watcher.logFile` | Append-only human-readable alert log. |
+| `watcher.stateFile` | Where edge-trigger state persists. |
+| `watcher.quietHours` | `{ start, end }` as `"HH:MM"`, or `null`. |
+
+Config problems are caught at startup with a message that says what to fix —
+including the easy-to-miss one where a rule names a symbol that isn't on the
+watchlist, so it could never fire.
+
+### A note on API keys
+
+Keys are **not** included when the web app exports a config. An exported file
+is the kind of thing that ends up pasted into a chat or committed to a repo,
+and a key that leaks that way costs more than the ten seconds it takes to add
+it to the config by hand. `watcher.config.json` and `.watcher-state.json` are
+gitignored for the same reason.
+
+---
+
 ## Data sources
 
 **Crypto — CoinGecko.** No key required. Works straight from the browser.
@@ -170,7 +349,7 @@ cd market-watch
 npm test
 ```
 
-54 tests covering the parts where a quiet bug costs money:
+79 tests covering the parts where a quiet bug costs money:
 
 - **Indicators** — verified against hand-computed values (Wilder RSI-14 on the
   canonical worked example, EMA seeding, ATR, sample standard deviation),
@@ -182,6 +361,10 @@ npm test
 - **Alert engine** — every rule type, plus edge triggering, re-arming, cooldown
   suppression, one-shot rules, and malformed rules failing silently rather than
   throwing.
+- **Watcher** — config validation (including the rule-references-an-unwatched-
+  symbol case), quiet-hour windows that wrap past midnight, state surviving a
+  restart, corrupt state degrading instead of crashing, and the Discord/Slack/
+  JSON webhook payload shapes.
 
 ---
 
@@ -191,10 +374,17 @@ npm test
 market-watch/
 ├── index.html              # app shell
 ├── server.js               # optional static server + stock proxy (zero deps)
+├── watcher.js              # background watcher daemon
+├── watcher.config.example.json
 ├── css/styles.css
 ├── js/
 │   ├── app.js              # controller: polling loop, event wiring
 │   ├── state.js            # localStorage persistence
+│   ├── config-io.js        # export/import between app and watcher
+│   ├── watcher/
+│   │   ├── config.js       # config load + validation, quiet hours
+│   │   ├── store.js        # durable rule state, atomic writes, event log
+│   │   └── deliver.js      # desktop, speech, webhook, command channels
 │   ├── util.js
 │   ├── analysis/
 │   │   ├── indicators.js   # SMA, EMA, RSI, MACD, ATR, drawdown, z-score

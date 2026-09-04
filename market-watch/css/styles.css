@@ -301,6 +301,12 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 .btn--ghost { background: transparent; }
 .btn--sm { padding: 5px 10px; font-size: .78rem; }
 .btn--danger { color: var(--bear); border-color: rgba(248, 81, 73, .4); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em;
+  background: var(--bg-inset); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px;
+}
 
 .icon-btn {
   background: none; border: none; color: var(--muted); cursor: pointer;

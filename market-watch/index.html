@@ -152,6 +152,20 @@
         </label>
       </fieldset>
 
+      <fieldset class="fieldset">
+        <legend>Background watcher</legend>
+        <p class="field__hint">
+          The browser can only alert you while this tab is open. For alerts that keep
+          arriving after you close it, export your watchlist and alerts and run them
+          with <code>npm run watch</code>. See the README for the setup.
+        </p>
+        <div class="btn-row">
+          <button id="export-config" class="btn btn--sm" type="button">Export for watcher</button>
+          <button id="import-config" class="btn btn--sm" type="button">Import config</button>
+        </div>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+      </fieldset>
+
       <button id="reset-all" class="btn btn--danger btn--sm" type="button">Reset everything</button>
     </form>
   </section>

@@ -8,6 +8,7 @@ import { state, load, save, addToWatchlist, removeFromWatchlist,
 import { fetchAsset } from './providers/index.js';
 import { analyseSeries } from './analysis/signals.js';
 import { createRule, evaluateAll, assetKey } from './alerts/rules.js';
+import { buildWatcherConfig, applyImportedConfig } from './config-io.js';
 import { deliver, toast, requestPermission, notificationState, speechSupported, speak } from './alerts/notify.js';
 import * as render from './ui/render.js';
 import { escapeHtml } from './util.js';
@@ -216,6 +217,42 @@ function wire() {
       message: 'This is a test alert. If you can see, hear, or were notified by this, that channel is working.',
       firedAt: Date.now(),
     }, state.settings);
+  });
+
+  // --- hand the watchlist and alerts to the background watcher
+  $('#export-config').addEventListener('click', () => {
+    const json = JSON.stringify(buildWatcherConfig(state), null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'watcher.config.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast('Exported watcher.config.json. Put it next to watcher.js and run "npm run watch".', 'info', 8000);
+  });
+
+  $('#import-config').addEventListener('click', () => $('#import-file').click());
+
+  $('#import-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const summary = applyImportedConfig(state, JSON.parse(await file.text()));
+      save();
+      hydrateSettings();
+      state.assets.clear();
+      state.errors.clear();
+      paint();
+      refresh();
+      toast(`Imported ${summary.watchlist} asset(s) and ${summary.rules} alert(s).`, 'info', 6000);
+    } catch (err) {
+      toast(`Could not import that file: ${err.message}`, 'warning', 9000);
+    } finally {
+      e.target.value = '';        // allow re-importing the same file
+    }
   });
 
   $('#reset-all').addEventListener('click', () => {
