@@ -1,0 +1,77 @@
+# Publishes the Market Watch web app to GitHub Pages.
+#
+# The site root is market-watch/, so the app lands at the top level of the
+# Pages URL rather than in a subdirectory.
+#
+# Server-side pieces (server.js, watcher.js, tests) are deliberately NOT
+# published: Pages serves static files only, so shipping them would just be
+# dead weight that implies a backend that isn't there.
+#
+# One-time setup, in the repo's Settings -> Pages:
+#   Build and deployment -> Source -> GitHub Actions
+name: Deploy Market Watch to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'market-watch/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:      # lets you deploy on demand from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue them instead of cancelling, so the last
+# push always ends up being the thing that is live.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run the test suite
+        working-directory: market-watch
+        run: npm test
+
+  deploy:
+    name: Deploy
+    needs: test              # a red test suite never reaches the live site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the static site
+        run: |
+          mkdir -p _site
+          cp -r market-watch/index.html market-watch/css market-watch/js _site/
+          cp market-watch/README.md _site/README.md
+          # js/watcher/ is Node-only (it imports node:fs and node:child_process)
+          # and is never loaded by the page, so it has no business on a static
+          # host where it would only mislead anyone reading the source.
+          rm -rf _site/js/watcher
+          # Pages runs Jekyll by default, which skips paths beginning with an
+          # underscore. This opts out of that processing entirely.
+          touch _site/.nojekyll
+          echo "Published files:" && find _site -type f | sort
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
