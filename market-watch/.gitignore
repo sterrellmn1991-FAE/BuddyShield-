@@ -1,6 +1,0 @@
-# Runtime files produced by the background watcher.
-watcher.config.json
-.watcher-state.json
-.watcher-state.json.tmp
-watcher-events.log
-node_modules/
